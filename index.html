@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dobby Travel Planner</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-[#FCE6CF] min-h-screen flex flex-col items-center p-6">
+  <h1 class="text-3xl font-bold mb-4">Dobby Travel Planner</h1>
+
+  <div class="bg-white p-6 rounded-2xl shadow-md w-full max-w-2xl">
+    <label class="block mb-2">Destination</label>
+    <input id="destination" class="w-full p-2 border rounded mb-4" placeholder="e.g. Paris, France">
+
+    <label class="block mb-2">Start Date</label>
+    <input id="startDate" type="date" class="w-full p-2 border rounded mb-4">
+
+    <label class="block mb-2">End Date</label>
+    <input id="endDate" type="date" class="w-full p-2 border rounded mb-4">
+
+    <button onclick="generatePlan()" class="bg-[#467cae] text-white px-4 py-2 rounded-lg">Generate Itinerary</button>
+  </div>
+
+  <div id="output" class="mt-6 w-full max-w-2xl"></div>
+  <div id="logo-container" 
+     class="fixed top-1/2 right-2.5 -translate-y-1/2 max-w-[1000px] opacity-20 pointer-events-none z-0 md:static md:translate-y-0 md:mt-5 md:flex md:justify-center md:w-full">
+
+  <img src="senti-logo.png" alt="Senti Logo" 
+       class="w-full md:max-w-[400px] md:opacity-20" />
+</div>
+
+
+  <script>
+    const API_URL = "https://api.fireworks.ai/inference/v1/chat/completions";
+    const API_KEY = "fw_3ZjScPnzULE2Y3KQm5QVCq2h";
+    const MODEL = "accounts/sentientfoundation/models/dobby-unhinged-llama-3-3-70b-new";
+    function tryParseJSON(text) {
+      try {
+        return JSON.parse(text);
+      } catch {
+        
+        const match = text.match(/\{[\s\S]*\}/);
+        if (!match) throw new Error("No JSON structure found.");
+        let cleaned = match[0];
+
+        
+        cleaned = cleaned.replace(/,\s*}/g, "}"); 
+        cleaned = cleaned.replace(/,\s*]/g, "]"); 
+        cleaned = cleaned.replace(/“|”/g, '"');   
+        cleaned = cleaned.replace(/‘|’/g, '"');
+
+        return JSON.parse(cleaned);
+      }
+    }
+
+    async function callDobby(prompt) {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${API_KEY}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: 1500,
+          temperature: 0.7,
+          messages: [
+            {
+              role: "system",
+              content: "You are a strict travel itinerary generator. Respond ONLY with valid JSON. Do not add explanations or markdown."
+            },
+            { role: "user", content: prompt }
+          ]
+        })
+      });
+
+      const data = await res.json();
+      let text = data?.choices?.[0]?.message?.content || "";
+      return tryParseJSON(text);
+    }
+
+    async function generatePlan() {
+      const destination = document.getElementById("destination").value;
+      const startDate = document.getElementById("startDate").value;
+      const endDate = document.getElementById("endDate").value;
+      const out = document.getElementById("output");
+      out.innerHTML = "⏳ Generating itinerary...";
+
+      const prompt = `
+        Create a travel itinerary for ${destination} from ${startDate} to ${endDate}.
+        Return in this JSON format only:
+        {
+          "destination": "...",
+          "days": [
+            { "date": "...", "activities": ["...","..."], "meals": ["..."] }
+          ],
+          "packingList": ["..."],
+          "transportNotes": ["..."],
+          "estimatedCost": "..."
+        }
+      `;
+
+      try {
+        const plan = await callDobby(prompt);
+
+        // Render plan
+        let html = `<div class="bg-white p-6 rounded-2xl shadow">`;
+        html += `<h2 class="text-2xl font-bold mb-4">Itinerary for ${plan.destination}</h2>`;
+        plan.days.forEach(day => {
+          html += `<div class="mb-4"><h3 class="font-semibold">${day.date}</h3>`;
+          html += `<ul class="list-disc ml-6">`;
+          day.activities.forEach(a => html += `<li>${a}</li>`);
+          html += `</ul>`;
+          if (day.meals) {
+            html += `<p class="mt-2"><strong>Meals:</strong> ${day.meals.join(", ")}</p>`;
+          }
+          html += `</div>`;
+        });
+        html += `<h3 class="font-semibold mt-4">Packing List</h3><ul class="list-disc ml-6">`;
+        plan.packingList.forEach(item => html += `<li>${item}</li>`);
+        html += `</ul>`;
+        html += `<h3 class="font-semibold mt-4">Transport Notes</h3><ul class="list-disc ml-6">`;
+        plan.transportNotes.forEach(item => html += `<li>${item}</li>`);
+        html += `</ul>`;
+        html += `<p class="mt-4"><strong>Estimated Cost:</strong> ${plan.estimatedCost}</p>`;
+        html += `</div>`;
+
+        out.innerHTML = html;
+      } catch (err) {
+        console.error("Parse error:", err);
+        out.innerHTML = "❌ Still failed to parse plan. Try shorter inputs or different destination.";
+      }
+    }
+  </script>
+</body>
+</html>
